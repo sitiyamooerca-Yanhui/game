@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>无底俄罗斯方块</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        background: #0a0a0a;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        padding: 20px;
+        font-family: 'Press Start 2P', monospace;
+      }
+
+      .tetris-embed {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 15px;
+        user-select: none;
+        -webkit-user-select: none;
+      }
+
+      .tetris-game-box {
+        display: flex;
+        border: 3px solid #e84393;
+        box-shadow: 0 0 30px rgba(232, 67, 147, 0.2);
+      }
+
+      .tetris-left-bar {
+        width: 6px;
+        background: #c23476;
+        position: relative;
+      }
+
+      .tetris-left-bar::after {
+        content: '';
+        position: absolute;
+        left: 1px;
+        top: 0;
+        bottom: 0;
+        width: 2px;
+        background: #e84393;
+      }
+
+      #tetris-canvas {
+        display: block;
+        image-rendering: pixelated;
+        background: #0d0d0d;
+      }
+
+      .tetris-panel {
+        width: 120px;
+        background: #c23476;
+        padding: 12px 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .tetris-panel-label {
+        color: #1a1a1a;
+        font-size: 10px;
+        letter-spacing: 2px;
+      }
+
+      .tetris-panel-value {
+        color: #1a1a1a;
+        font-size: 9px;
+        margin-top: 3px;
+      }
+
+      .tetris-next-box {
+        background: #1a1a1a;
+        padding: 6px;
+        margin-top: 4px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      #tetris-next-canvas {
+        image-rendering: pixelated;
+      }
+
+      #tetris-start-btn {
+        background: #1a1a1a;
+        color: #e84393;
+        border: 2px solid #e84393;
+        padding: 10px 28px;
+        font-size: 10px;
+        cursor: pointer;
+        letter-spacing: 2px;
+        transition: all 0.15s;
+      }
+
+      #tetris-start-btn:hover {
+        background: #e84393;
+        color: #1a1a1a;
+      }
+
+      #tetris-start-btn.hidden {
+        display: none;
+      }
+
+      .tetris-touch-controls {
+        display: none;
+        gap: 10px;
+      }
+
+      .tetris-touch-btn {
+        width: 48px;
+        height: 48px;
+        background: #1a1a1a;
+        color: #e84393;
+        border: 2px solid #e84393;
+        font-size: 18px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .tetris-touch-btn:active {
+        background: #e84393;
+        color: #1a1a1a;
+      }
+
+      @media (hover: none) and (pointer: coarse) {
+        .tetris-touch-controls.active {
+          display: flex;
+        }
+      }
+
+      .tetris-hint {
+        color: #6b3a50;
+        font-size: 7px;
+        letter-spacing: 1px;
+        text-align: center;
+      }
+
+    </style>
+</head>
+<body>
+    <div class="tetris-embed">
+      <div class="tetris-game-box">
+        <div class="tetris-left-bar"></div>
+        <canvas id="tetris-canvas"></canvas>
+        <div class="tetris-panel">
+          <div>
+            <div class="tetris-panel-label">SCORE</div>
+            <div class="tetris-panel-value">000000</div>
+          </div>
+          <div>
+            <div class="tetris-panel-label">NEXT</div>
+            <div class="tetris-next-box">
+              <canvas id="tetris-next-canvas" width="64" height="64"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+      <button id="tetris-start-btn">开始游戏</button>
+      <div class="tetris-touch-controls" id="tetris-touch">
+        <div class="tetris-touch-btn" id="t-btn-left">◀</div>
+        <div class="tetris-touch-btn" id="t-btn-right">▶</div>
+      </div>
+      <div class="tetris-hint" id="tetris-hint">← → 移动</div>
+    </div>
+
+
+
+    <script>
+    (function() {
+      const COLS = 10, ROWS = 12, CELL = 24;
+      const cv = document.getElementById('tetris-canvas');
+      const cx = cv.getContext('2d');
+      cv.width = COLS * CELL;
+      cv.height = ROWS * CELL;
+
+      const ncv = document.getElementById('tetris-next-canvas');
+      const ncx = ncv.getContext('2d');
+
+      const startBtn = document.getElementById('tetris-start-btn');
+      const touch = document.getElementById('tetris-touch');
+      const hint = document.getElementById('tetris-hint');
+
+      const PK = '#e84393', PD = '#c23476', PP = '#a02060', BG = '#111', DOT = '#252525';
+
+      // J-piece
+      const PIECE = [[1,0,0],[1,1,1]];
+
+      let pRow = -2, pCol = 3, playing = false, done = false, timer = null;
+
+      function drawBlock(c, x, y, s) {
+        c.fillStyle = PD;
+        c.fillRect(x+1, y+1, s-2, s-2);
+        c.strokeStyle = PK;
+        c.lineWidth = 2;
+        c.strokeRect(x+2, y+2, s-4, s-4);
+        const m = s * 0.25;
+        c.fillStyle = PP;
+        c.fillRect(x+m, y+m, s-m*2, s-m*2);
+        c.strokeStyle = PK;
+        c.lineWidth = 1.5;
+        c.strokeRect(x+m, y+m, s-m*2, s-m*2);
+      }
+
+      function render() {
+        cx.fillStyle = BG;
+        cx.fillRect(0, 0, cv.width, cv.height);
+        for (let r = 0; r < ROWS; r++)
+          for (let c = 0; c < COLS; c++) {
+            cx.fillStyle = DOT;
+            cx.beginPath();
+            cx.arc(c*CELL+CELL/2, r*CELL+CELL/2, 1.5, 0, Math.PI*2);
+            cx.fill();
+          }
+        if (playing && !done) {
+          for (let r = 0; r < PIECE.length; r++)
+            for (let c = 0; c < PIECE[r].length; c++)
+              if (PIECE[r][c]) {
+                const pr = pRow+r, pc = pCol+c;
+                if (pr >= 0 && pr < ROWS && pc >= 0 && pc < COLS)
+                  drawBlock(cx, pc*CELL, pr*CELL, CELL);
+              }
+        }
+      }
+
+      function renderNext() {
+        ncx.clearRect(0, 0, 64, 64);
+        const s = 14, ox = (64-4*s)/2, oy = (64-s)/2;
+        for (let i = 0; i < 4; i++) drawBlock(ncx, ox+i*s, oy, s);
+      }
+
+      function drop() {
+        pRow++;
+        if (pRow > ROWS) {
+          endGame();
+          return;
+        }
+        render();
+      }
+
+      function moveL() {
+        if (!playing || done) return;
+        let mn = COLS;
+        for (let r = 0; r < PIECE.length; r++)
+          for (let c = 0; c < PIECE[r].length; c++)
+            if (PIECE[r][c]) mn = Math.min(mn, pCol+c);
+        if (mn > 0) {
+          pCol--;
+          render();
+        }
+      }
+
+      function moveR() {
+        if (!playing || done) return;
+        let mx = -1;
+        for (let r = 0; r < PIECE.length; r++)
+          for (let c = 0; c < PIECE[r].length; c++)
+            if (PIECE[r][c]) mx = Math.max(mx, pCol+c);
+        if (mx < COLS-1) {
+          pCol++;
+          render();
+        }
+      }
+
+      function startGame() {
+        pRow = -2;
+        pCol = 3;
+        playing = true;
+        done = false;
+        startBtn.classList.add('hidden');
+        hint.textContent = '← → 移动';
+        render();
+        setTimeout(function() {
+          if (!playing) return;
+          timer = setInterval(drop, 500);
+        }, 1500);
+      }
+
+      function endGame() {
+        clearInterval(timer);
+        timer = null;
+        done = true;
+        playing = false;
+        render();
+      }
+
+      document.addEventListener('keydown', function(e) {
+        if (e.key === 'ArrowLeft' || e.key === 'a') {
+          e.preventDefault();
+          moveL();
+        }
+        if (e.key === 'ArrowRight' || e.key === 'd') {
+          e.preventDefault();
+          moveR();
+        }
+      });
+
+      document.getElementById('t-btn-left').addEventListener('touchstart', function(e) {
+        e.preventDefault();
+        moveL();
+      });
+      document.getElementById('t-btn-right').addEventListener('touchstart', function(e) {
+        e.preventDefault();
+        moveR();
+      });
+      document.getElementById('t-btn-left').addEventListener('click', moveL);
+      document.getElementById('t-btn-right').addEventListener('click', moveR);
+
+      startBtn.addEventListener('click', startGame);
+
+      render();
+      renderNext();
+      touch.classList.add('active');
+    })();
+    </script>
+</body>
+</html>
